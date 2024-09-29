@@ -1,0 +1,146 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Fonction utilitaire pour créer des dessins (boîtes, textes, etc.)
+local function createDrawing(type, properties)
+    local drawing = Drawing.new(type)
+    for key, value in pairs(properties) do
+        drawing[key] = value
+    end
+    return drawing
+end
+
+-- Fonction pour convertir la position 3D du joueur en position 2D à l'écran
+local function WorldToViewportPoint(position)
+    local camera = workspace.CurrentCamera
+    local screenPos, onScreen = camera:WorldToViewportPoint(position)
+    return Vector2.new(screenPos.X, screenPos.Y), onScreen
+end
+
+-- Fonction pour créer un dégradé de couleur entre vert et rouge en fonction de la santé
+local function HealthToColor(healthPercent)
+    local red = math.clamp(255 * (1 - healthPercent), 0, 255)
+    local green = math.clamp(255 * healthPercent, 0, 255)
+    return Color3.fromRGB(red, green, 0)
+end
+
+-- Table pour stocker les dessins créés pour chaque joueur
+local ESPTable = {}
+
+-- Fonction pour créer et mettre à jour l'ESP pour chaque joueur
+local function UpdateESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local character = player.Character
+            local rootPart = character.HumanoidRootPart
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+            -- Vérification des valeurs de santé avant calcul
+            if humanoid and humanoid.Health > 0 and humanoid.MaxHealth > 0 then
+                -- Obtenir la position 2D de la boîte
+                local rootPosition, onScreen = WorldToViewportPoint(rootPart.Position)
+
+                if onScreen then
+                    -- Calculer la taille de la boîte en fonction de la distance
+                    local size = math.clamp(4000 / (rootPart.Position - workspace.CurrentCamera.CFrame.p).Magnitude, 10, 100)
+
+                    -- Détermine la couleur en fonction de la Team
+                    local teamColor = player.Team and player.Team.TeamColor.Color or Color3.fromRGB(255, 255, 255)
+
+                    -- Crée ou met à jour les dessins de la boîte
+                    if not ESPTable[player] then
+                        ESPTable[player] = {
+                            boxOutline = createDrawing("Square", {Color = Color3.fromRGB(0, 0, 0), Thickness = 1, Filled = false}),
+                            box = createDrawing("Square", {Color = teamColor, Thickness = 2, Filled = false}),
+                            name = createDrawing("Text", {Size = 14, Center = true, Outline = true, Color = Color3.fromRGB(150, 150, 150), Font = 2}),
+                            teamDot = createDrawing("Circle", {Radius = 6, Color = teamColor, Thickness = 2, Filled = true}),
+                            teamDotOutline = createDrawing("Circle", {Radius = 7, Color = Color3.fromRGB(0, 0, 0), Thickness = 1, Filled = false}),
+                            healthBarOutline = createDrawing("Square", {Color = Color3.fromRGB(0, 0, 0), Thickness = 1, Filled = true}),
+                            healthBar = createDrawing("Square", {Filled = true}),
+                            distance = createDrawing("Text", {Size = 14, Center = true, Outline = true, Color = Color3.fromRGB(150, 150, 150), Font = 2}),
+                            weapon = createDrawing("Text", {Size = 14, Center = true, Outline = true, Color = Color3.fromRGB(150, 150, 150), Font = 2})
+                        }
+                    end
+
+                    -- Met à jour les propriétés de la boîte
+                    ESPTable[player].boxOutline.Size = Vector2.new(size, size * 1.5)
+                    ESPTable[player].boxOutline.Position = Vector2.new(rootPosition.X - size / 2, rootPosition.Y - size * 1.5 / 2)
+                    ESPTable[player].boxOutline.Visible = true
+
+                    ESPTable[player].box.Size = Vector2.new(size, size * 1.5)
+                    ESPTable[player].box.Position = Vector2.new(rootPosition.X - size / 2, rootPosition.Y - size * 1.5 / 2)
+                    ESPTable[player].box.Visible = true
+                    ESPTable[player].box.Color = teamColor
+
+                    -- Met à jour le texte du nom
+                    ESPTable[player].name.Text = player.Name
+                    ESPTable[player].name.Position = Vector2.new(rootPosition.X, rootPosition.Y - size * 1.5 / 2 - 15)
+                    ESPTable[player].name.Visible = true
+
+                    -- Met à jour la pastille de la couleur de la team avec contour et espacement ajusté
+                    ESPTable[player].teamDot.Position = Vector2.new(rootPosition.X + 70, rootPosition.Y - size * 1.5 / 2 - 10)
+                    ESPTable[player].teamDot.Color = teamColor
+                    ESPTable[player].teamDot.Visible = true
+
+                    -- Contour de la pastille de la team
+                    ESPTable[player].teamDotOutline.Position = ESPTable[player].teamDot.Position
+                    ESPTable[player].teamDotOutline.Visible = true
+
+                    -- Calcule le pourcentage de santé
+                    local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+
+                    -- Met à jour la barre de vie avec contour espacé de la boîte
+                    local healthSize = math.max((size * 1.5) * healthPercent, 0.5)
+
+                    ESPTable[player].healthBarOutline.Size = Vector2.new(6, size * 1.5)
+                    ESPTable[player].healthBarOutline.Position = Vector2.new(rootPosition.X - size / 2 - 12, rootPosition.Y - size * 1.5 / 2)
+                    ESPTable[player].healthBarOutline.Visible = true
+
+                    -- Met à jour la couleur de la barre de vie selon la santé
+                    ESPTable[player].healthBar.Color = HealthToColor(healthPercent)
+                    ESPTable[player].healthBar.Size = Vector2.new(4, math.max(healthSize, 1)) -- Correction de la taille minimale de la barre
+                    ESPTable[player].healthBar.Position = Vector2.new(rootPosition.X - size / 2 - 11, rootPosition.Y - size * 1.5 / 2 + (size * 1.5) - healthSize)
+                    ESPTable[player].healthBar.Visible = true
+
+                    -- Met à jour le texte de la distance
+                    local distance = (workspace.CurrentCamera.CFrame.Position - rootPart.Position).Magnitude
+                    ESPTable[player].distance.Text = string.format("%.0f studs", distance)
+                    ESPTable[player].distance.Position = Vector2.new(rootPosition.X, rootPosition.Y + size * 1.5 / 2 + 5)
+                    ESPTable[player].distance.Visible = true
+
+                    -- Met à jour le texte de l'arme tenue (objet équipé)
+                    local tool = player.Character:FindFirstChildOfClass("Tool")
+                    ESPTable[player].weapon.Text = tool and tool.Name or "Unarmed"
+                    ESPTable[player].weapon.Position = Vector2.new(rootPosition.X, rootPosition.Y + size * 1.5 / 2 + 20)
+                    ESPTable[player].weapon.Visible = true
+                else
+                    -- Cache les éléments si le joueur est hors de l'écran
+                    if ESPTable[player] then
+                        for _, drawing in pairs(ESPTable[player]) do
+                            drawing.Visible = false
+                        end
+                    end
+                end
+            end
+        elseif ESPTable[player] then
+            -- Supprime les dessins si le joueur n'est plus valide
+            for _, drawing in pairs(ESPTable[player]) do
+                drawing:Remove()
+            end
+            ESPTable[player] = nil
+        end
+    end
+end
+
+-- Boucle pour mettre à jour l'ESP chaque frame
+RunService.RenderStepped:Connect(UpdateESP)
+
+-- Nettoyage des dessins lors de la déconnexion du joueur
+Players.PlayerRemoving:Connect(function(player)
+    if ESPTable[player] then
+        for _, drawing in pairs(ESPTable[player]) do
+            drawing:Remove()
+        end
+        ESPTable[player] = nil
+    end
+end)
